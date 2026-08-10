@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Escáner de Precios</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Escáner">
+<meta name="theme-color" content="#1C1D21">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#1C1D21;
+    --surface:#26282E;
+    --surface-2:#2F323A;
+    --text:#F2F0EB;
+    --text-dim:#8B8D95;
+    --laser:#FF4438;
+    --amber:#FFB100;
+    --ok:#3DDC84;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:'JetBrains Mono', monospace;
+    overflow:hidden;
+    display:flex; flex-direction:column;
+  }
+  .app{ position:relative; height:100dvh; display:flex; flex-direction:column; }
+
+  header{
+    padding:env(safe-area-inset-top,16px) 20px 12px;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  header h1{
+    font-family:'Big Shoulders Display', sans-serif;
+    font-weight:800; font-size:22px; letter-spacing:0.5px; margin:0;
+    text-transform:uppercase;
+  }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--text-dim); }
+  .dot.on{ background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  .status{ display:flex; align-items:center; gap:8px; font-size:11px; color:var(--text-dim); }
+
+  main{ flex:1; position:relative; overflow:hidden; }
+
+  /* ---- Idle / signed-out state ---- */
+  .center-pane{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:22px; padding:0 32px; text-align:center;
+  }
+  .barcode-mark{ display:flex; gap:4px; height:56px; align-items:flex-end; }
+  .barcode-mark div{ width:5px; background:var(--text); }
+  .barcode-mark div:nth-child(2n){ height:56px; } 
+  .barcode-mark div:nth-child(3n){ height:34px; }
+  .barcode-mark div:nth-child(5n){ height:44px; }
+
+  .btn{
+    font-family:'Big Shoulders Display', sans-serif;
+    font-weight:800; font-size:20px; letter-spacing:0.5px; text-transform:uppercase;
+    border:none; border-radius:14px; padding:18px 28px;
+    background:var(--laser); color:#fff; width:100%; max-width:320px;
+    cursor:pointer; transition:transform .12s ease, opacity .12s ease;
+  }
+  .btn:active{ transform:scale(0.97); }
+  .btn.secondary{ background:var(--surface-2); color:var(--text); }
+  .btn:disabled{ opacity:0.5; }
+  .hint{ color:var(--text-dim); font-size:13px; max-width:280px; line-height:1.5; }
+
+  /* ---- Scanning viewfinder ---- */
+  #reader{ position:absolute; inset:0; }
+  #reader video{ width:100%; height:100%; object-fit:cover; }
+
+  .viewfinder-frame{
+    position:absolute; inset:0; pointer-events:none;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .frame-box{
+    width:82%; max-width:420px; height:150px; position:relative;
+  }
+  .frame-box .corner{ position:absolute; width:28px; height:28px; border:3px solid var(--amber); }
+  .frame-box .tl{ top:0; left:0; border-right:none; border-bottom:none; }
+  .frame-box .tr{ top:0; right:0; border-left:none; border-bottom:none; }
+  .frame-box .bl{ bottom:0; left:0; border-right:none; border-top:none; }
+  .frame-box .br{ bottom:0; right:0; border-left:none; border-top:none; }
+  .laser-line{
+    position:absolute; left:4%; right:4%; height:2px; background:var(--laser);
+    box-shadow:0 0 10px 2px var(--laser);
+    animation:sweep 1.6s ease-in-out infinite;
+  }
+  @keyframes sweep{
+    0%{ top:8%; } 50%{ top:88%; } 100%{ top:8%; }
+  }
+  .scan-caption{
+    position:absolute; bottom:calc(env(safe-area-inset-bottom,16px) + 28px);
+    left:0; right:0; text-align:center; color:var(--text-dim); font-size:12px;
+    letter-spacing:1px; text-transform:uppercase;
+  }
+  .cancel-scan{
+    position:absolute; top:env(safe-area-inset-top,16px); right:16px;
+    background:rgba(28,29,33,0.85); color:var(--text); border:1px solid var(--surface-2);
+    border-radius:20px; padding:8px 16px; font-family:'JetBrains Mono'; font-size:13px;
+  }
+
+  /* ---- Result sheet ---- */
+  .sheet{
+    position:absolute; left:0; right:0; bottom:0;
+    background:var(--surface); border-radius:24px 24px 0 0;
+    padding:28px 24px calc(env(safe-area-inset-bottom,16px) + 24px);
+    transform:translateY(100%); transition:transform .28s cubic-bezier(.2,.9,.3,1);
+    box-shadow:0 -8px 30px rgba(0,0,0,0.4);
+  }
+  .sheet.show{ transform:translateY(0); }
+  .sheet .eyebrow{ font-size:11px; letter-spacing:2px; color:var(--text-dim); text-transform:uppercase; margin-bottom:6px;}
+  .sheet .name{
+    font-family:'Big Shoulders Display', sans-serif; font-weight:700; font-size:26px;
+    line-height:1.15; margin-bottom:18px; word-break:break-word;
+  }
+  .price-display{
+    background:var(--surface-2); border-radius:14px; padding:18px 20px;
+    display:flex; align-items:baseline; justify-content:space-between; margin-bottom:20px;
+  }
+  .price-display .label{ font-size:11px; color:var(--text-dim); letter-spacing:1px; text-transform:uppercase;}
+  .price-display .value{ font-size:32px; color:var(--amber); font-weight:700; }
+  .sheet .barcode-num{ color:var(--text-dim); font-size:12px; margin-bottom:22px; }
+  .sheet .row{ display:flex; gap:12px; }
+  .sheet .row .btn{ flex:1; }
+
+  /* ---- not found ---- */
+  .sheet.error .name{ color:var(--laser); }
+
+  .top-error{
+    position:absolute; top:calc(env(safe-area-inset-top,16px) + 8px); left:16px; right:16px;
+    background:var(--laser); color:#fff; padding:10px 14px; border-radius:10px;
+    font-size:13px; text-align:center; display:none;
+  }
+  .top-error.show{ display:block; }
+
+  .spinner{
+    width:18px; height:18px; border-radius:50%;
+    border:2px solid rgba(255,255,255,0.3); border-top-color:#fff;
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Escáner</h1>
+    <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Desconectado</span></div>
+  </header>
+
+  <main>
+    <!-- Signed out -->
+    <div class="center-pane" id="paneSignedOut">
+      <div class="barcode-mark">
+        <div style="height:44px"></div><div style="height:56px"></div><div style="height:30px"></div>
+        <div style="height:56px"></div><div style="height:38px"></div><div style="height:56px"></div>
+        <div style="height:30px"></div><div style="height:56px"></div><div style="height:44px"></div>
+      </div>
+      <div>
+        <div style="font-family:'Big Shoulders Display'; font-weight:800; font-size:24px; text-transform:uppercase; margin-bottom:8px;">Conectá tu planilla</div>
+        <div class="hint">Iniciá sesión con la cuenta de Google que tiene acceso al Google Sheets de precios.</div>
+      </div>
+      <button class="btn" id="btnSignIn">Conectar con Google</button>
+    </div>
+
+    <!-- Signed in / idle -->
+    <div class="center-pane" id="paneIdle" style="display:none;">
+      <div class="barcode-mark">
+        <div style="height:44px"></div><div style="height:56px"></div><div style="height:30px"></div>
+        <div style="height:56px"></div><div style="height:38px"></div><div style="height:56px"></div>
+        <div style="height:30px"></div><div style="height:56px"></div><div style="height:44px"></div>
+      </div>
+      <div class="hint">Listo para escanear. Apuntá la cámara al código de barras del producto.</div>
+      <button class="btn" id="btnScan">Escanear producto</button>
+      <button class="btn secondary" id="btnSignOut">Cerrar sesión</button>
+    </div>
+
+    <!-- Scanning -->
+    <div id="paneScanning" style="display:none; position:absolute; inset:0;">
+      <div id="reader"></div>
+      <div class="viewfinder-frame">
+        <div class="frame-box">
+          <div class="corner tl"></div><div class="corner tr"></div>
+          <div class="corner bl"></div><div class="corner br"></div>
+          <div class="laser-line"></div>
+        </div>
+      </div>
+      <div class="scan-caption">Buscando código de barras…</div>
+      <button class="cancel-scan" id="btnCancelScan">Cancelar</button>
+    </div>
+
+    <div class="top-error" id="topError"></div>
+
+    <!-- Result sheet -->
+    <div class="sheet" id="resultSheet">
+      <div class="eyebrow" id="sheetEyebrow">Producto encontrado</div>
+      <div class="name" id="sheetName">—</div>
+      <div class="price-display">
+        <span class="label">Precio</span>
+        <span class="value" id="sheetPrice">—</span>
+      </div>
+      <div class="barcode-num" id="sheetBarcode"></div>
+      <div class="row">
+        <button class="btn" id="btnScanAgain">Escanear otro</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+/* ============ CONFIGURÁ ESTOS 3 VALORES ============ */
+const GOOGLE_CLIENT_ID = "TU_CLIENT_ID.apps.googleusercontent.com";
+const SPREADSHEET_ID   = "TU_SPREADSHEET_ID";
+const SHEET_RANGE       = "Hoja1!A:C"; // hoja!rango — ajustá el nombre de la hoja
+/* ==================================================== */
+
+const SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
+let accessToken = sessionStorage.getItem("gs_token") || null;
+let tokenClient;
+let html5QrCode;
+
+const el = id => document.getElementById(id);
+const paneSignedOut = el("paneSignedOut");
+const paneIdle = el("paneIdle");
+const paneScanning = el("paneScanning");
+const resultSheet = el("resultSheet");
+const topError = el("topError");
+
+function setStatus(connected){
+  el("statusDot").classList.toggle("on", connected);
+  el("statusText").textContent = connected ? "Conectado" : "Desconectado";
+}
+
+function showError(msg){
+  topError.textContent = msg;
+  topError.classList.add("show");
+  setTimeout(()=> topError.classList.remove("show"), 3500);
+}
+
+function goIdleUI(){
+  paneSignedOut.style.display = "none";
+  paneIdle.style.display = "flex";
+  paneScanning.style.display = "none";
+  resultSheet.classList.remove("show");
+  setStatus(true);
+}
+
+function goSignedOutUI(){
+  paneSignedOut.style.display = "flex";
+  paneIdle.style.display = "none";
+  paneScanning.style.display = "none";
+  resultSheet.classList.remove("show");
+  setStatus(false);
+}
+
+window.addEventListener("load", () => {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: SCOPE,
+    callback: (resp) => {
+      if (resp.error){ showError("No se pudo iniciar sesión."); return; }
+      accessToken = resp.access_token;
+      sessionStorage.setItem("gs_token", accessToken);
+      goIdleUI();
+    }
+  });
+
+  if (accessToken) goIdleUI(); else goSignedOutUI();
+});
+
+el("btnSignIn").onclick = () => tokenClient.requestAccessToken({ prompt: "" });
+el("btnSignOut").onclick = () => {
+  accessToken = null;
+  sessionStorage.removeItem("gs_token");
+  goSignedOutUI();
+};
+
+el("btnScan").onclick = startScanning;
+el("btnScanAgain").onclick = () => { resultSheet.classList.remove("show"); startScanning(); };
+el("btnCancelScan").onclick = stopScanning;
+
+function startScanning(){
+  paneIdle.style.display = "none";
+  paneScanning.style.display = "block";
+  resultSheet.classList.remove("show");
+
+  html5QrCode = new Html5Qrcode("reader", {
+    formatsToSupport: [
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E,
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39
+    ]
+  });
+
+  html5QrCode.start(
+    { facingMode: "environment" },
+    { fps: 12, qrbox: { width: 280, height: 140 } },
+    onScanSuccess,
+    () => {} // ignore per-frame failures
+  ).catch(() => {
+    showError("No se pudo acceder a la cámara.");
+    stopScanning();
+  });
+}
+
+function stopScanning(){
+  if (html5QrCode){
+    html5QrCode.stop().catch(()=>{}).finally(()=>{
+      html5QrCode.clear();
+      paneScanning.style.display = "none";
+      paneIdle.style.display = "flex";
+    });
+  } else {
+    paneScanning.style.display = "none";
+    paneIdle.style.display = "flex";
+  }
+}
+
+function onScanSuccess(decodedText){
+  if (html5QrCode){
+    html5QrCode.pause(true);
+  }
+  lookupBarcode(decodedText.trim());
+}
+
+async function lookupBarcode(code){
+  try {
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(SHEET_RANGE)}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+
+    if (res.status === 401){
+      sessionStorage.removeItem("gs_token");
+      accessToken = null;
+      showError("La sesión expiró, volvé a conectar.");
+      stopScanning();
+      goSignedOutUI();
+      return;
+    }
+    if (!res.ok){ throw new Error("sheets_error"); }
+
+    const data = await res.json();
+    const rows = data.values || [];
+    const match = rows.find(r => (r[0] || "").trim() === code);
+
+    if (paneScanning.style.display !== "none"){
+      html5QrCode.stop().catch(()=>{}).finally(()=> html5QrCode.clear());
+    }
+    paneScanning.style.display = "none";
+    paneIdle.style.display = "flex";
+
+    if (match){
+      el("sheetEyebrow").textContent = "Producto encontrado";
+      el("sheetName").textContent = match[1] || "(sin nombre)";
+      el("sheetPrice").textContent = match[2] ? formatPrice(match[2]) : "—";
+      el("sheetBarcode").textContent = "Código: " + code;
+      resultSheet.classList.remove("error");
+    } else {
+      el("sheetEyebrow").textContent = "No encontrado";
+      el("sheetName").textContent = "Ese código no está en la planilla";
+      el("sheetPrice").textContent = "—";
+      el("sheetBarcode").textContent = "Código: " + code;
+      resultSheet.classList.add("error");
+    }
+    resultSheet.classList.add("show");
+
+  } catch(e){
+    showError("No se pudo consultar la planilla.");
+    stopScanning();
+  }
+}
+
+function formatPrice(raw){
+  const n = parseFloat(String(raw).replace(",", "."));
+  if (isNaN(n)) return raw;
+  return "$" + n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+</script>
+</body>
+</html>
