@@ -71,6 +71,44 @@
   .btn:disabled{ opacity:0.5; }
   .hint{ color:var(--text-dim); font-size:13px; max-width:280px; line-height:1.5; }
 
+  /* ---- Browse pane (signed in): search + scan ---- */
+  .browse-pane{
+    position:absolute; inset:0; display:none; flex-direction:column;
+    padding:4px 20px calc(env(safe-area-inset-bottom,16px) + 16px);
+  }
+  .search-wrap{ position:relative; margin-bottom:14px; flex-shrink:0; }
+  .search-wrap svg{ position:absolute; left:14px; top:50%; transform:translateY(-50%); opacity:0.5; }
+  #searchInput{
+    width:100%; background:var(--surface); border:1px solid var(--surface-2);
+    border-radius:12px; padding:14px 40px 14px 40px; color:var(--text);
+    font-family:'JetBrains Mono', monospace; font-size:15px; outline:none;
+  }
+  #searchInput:focus{ border-color:var(--amber); }
+  .search-wrap .clear-btn{
+    position:absolute; right:8px; top:50%; transform:translateY(-50%);
+    background:none; border:none; color:var(--text-dim); font-size:18px; padding:6px 10px;
+    display:none;
+  }
+  .search-wrap.has-text .clear-btn{ display:block; }
+
+  .default-view{
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px;
+  }
+
+  .results-view{ display:none; flex:1; flex-direction:column; overflow:hidden; }
+  .results-view.show{ display:flex; }
+  .results-count{ color:var(--text-dim); font-size:11px; letter-spacing:1px; text-transform:uppercase; margin-bottom:10px; flex-shrink:0; }
+  .results-list{ flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:8px; padding-bottom:12px; }
+  .result-row{
+    background:var(--surface); border-radius:12px; padding:14px 16px;
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    cursor:pointer; transition:background .1s ease;
+  }
+  .result-row:active{ background:var(--surface-2); }
+  .result-row .rname{ font-size:14px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .result-row .rprice{ color:var(--amber); font-weight:700; font-size:15px; flex-shrink:0; }
+  .no-results{ color:var(--text-dim); font-size:13px; text-align:center; padding:30px 10px; }
+
   /* ---- Scanning viewfinder ---- */
   #reader{ position:absolute; inset:0; }
   #reader video{ width:100%; height:100%; object-fit:cover; }
@@ -113,6 +151,7 @@
     padding:28px 24px calc(env(safe-area-inset-bottom,16px) + 24px);
     transform:translateY(100%); transition:transform .28s cubic-bezier(.2,.9,.3,1);
     box-shadow:0 -8px 30px rgba(0,0,0,0.4);
+    z-index:5;
   }
   .sheet.show{ transform:translateY(0); }
   .sheet .eyebrow{ font-size:11px; letter-spacing:2px; color:var(--text-dim); text-transform:uppercase; margin-bottom:6px;}
@@ -136,16 +175,9 @@
   .top-error{
     position:absolute; top:calc(env(safe-area-inset-top,16px) + 8px); left:16px; right:16px;
     background:var(--laser); color:#fff; padding:10px 14px; border-radius:10px;
-    font-size:13px; text-align:center; display:none;
+    font-size:13px; text-align:center; display:none; z-index:10;
   }
   .top-error.show{ display:block; }
-
-  .spinner{
-    width:18px; height:18px; border-radius:50%;
-    border:2px solid rgba(255,255,255,0.3); border-top-color:#fff;
-    animation:spin .7s linear infinite;
-  }
-  @keyframes spin{ to{ transform:rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -170,16 +202,29 @@
       <button class="btn" id="btnSignIn">Conectar con Google</button>
     </div>
 
-    <!-- Signed in / idle -->
-    <div class="center-pane" id="paneIdle" style="display:none;">
-      <div class="barcode-mark">
-        <div style="height:44px"></div><div style="height:56px"></div><div style="height:30px"></div>
-        <div style="height:56px"></div><div style="height:38px"></div><div style="height:56px"></div>
-        <div style="height:30px"></div><div style="height:56px"></div><div style="height:44px"></div>
+    <!-- Signed in: search + scan -->
+    <div class="browse-pane" id="paneBrowse">
+      <div class="search-wrap" id="searchWrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8B8D95" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="searchInput" type="text" placeholder="Buscar por nombre..." autocomplete="off" autocorrect="off" spellcheck="false">
+        <button class="clear-btn" id="btnClearSearch">✕</button>
       </div>
-      <div class="hint">Listo para escanear. Apuntá la cámara al código de barras del producto.</div>
-      <button class="btn" id="btnScan">Escanear producto</button>
-      <button class="btn secondary" id="btnSignOut">Cerrar sesión</button>
+
+      <div class="default-view" id="defaultView">
+        <div class="barcode-mark">
+          <div style="height:44px"></div><div style="height:56px"></div><div style="height:30px"></div>
+          <div style="height:56px"></div><div style="height:38px"></div><div style="height:56px"></div>
+          <div style="height:30px"></div><div style="height:56px"></div><div style="height:44px"></div>
+        </div>
+        <div class="hint">Listo para escanear. Apuntá la cámara al código de barras, o buscá por nombre arriba.</div>
+        <button class="btn" id="btnScan">Escanear producto</button>
+        <button class="btn secondary" id="btnSignOut">Cerrar sesión</button>
+      </div>
+
+      <div class="results-view" id="resultsView">
+        <div class="results-count" id="resultsCount"></div>
+        <div class="results-list" id="resultsList"></div>
+      </div>
     </div>
 
     <!-- Scanning -->
@@ -208,7 +253,7 @@
       </div>
       <div class="barcode-num" id="sheetBarcode"></div>
       <div class="row">
-        <button class="btn" id="btnScanAgain">Escanear otro</button>
+        <button class="btn" id="btnCloseSheet">Cerrar</button>
       </div>
     </div>
   </main>
@@ -217,23 +262,36 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
-/* ============ CONFIGURÁ ESTOS 3 VALORES ============ */
-const GOOGLE_CLIENT_ID = "484542768280-o5g75va6b8l5aqhiocdqaohbp81krrnf.apps.googleusercontent.com";
-const SPREADSHEET_ID   = "10A7LDJFRscLKjkZyGEjJLlUlA7sojf6zgpQsvLSXN7A";
+/* ============ CONFIGURÁ ESTOS VALORES ============ */
+const GOOGLE_CLIENT_ID = "TU_CLIENT_ID.apps.googleusercontent.com";
+const SPREADSHEET_ID   = "TU_SPREADSHEET_ID";
 const SHEET_RANGE       = "Hoja1!A:C"; // hoja!rango — ajustá el nombre de la hoja
-/* ==================================================== */
+
+// Posición de cada dato DENTRO del rango de arriba, empezando en 0.
+// Ej: si SHEET_RANGE es "Hoja1!A:C", la columna A es el índice 0, B es 1, C es 2.
+const COL_BARCODE = 0;
+const COL_NAME    = 1;
+const COL_PRICE   = 2;
+/* =================================================== */
 
 const SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
 let accessToken = sessionStorage.getItem("gs_token") || null;
 let tokenClient;
 let html5QrCode;
+let cachedRows = null; // cache en memoria de todas las filas del sheet
 
 const el = id => document.getElementById(id);
 const paneSignedOut = el("paneSignedOut");
-const paneIdle = el("paneIdle");
+const paneBrowse = el("paneBrowse");
 const paneScanning = el("paneScanning");
 const resultSheet = el("resultSheet");
 const topError = el("topError");
+const defaultView = el("defaultView");
+const resultsView = el("resultsView");
+const resultsList = el("resultsList");
+const resultsCount = el("resultsCount");
+const searchInput = el("searchInput");
+const searchWrap = el("searchWrap");
 
 function setStatus(connected){
   el("statusDot").classList.toggle("on", connected);
@@ -248,18 +306,20 @@ function showError(msg){
 
 function goIdleUI(){
   paneSignedOut.style.display = "none";
-  paneIdle.style.display = "flex";
+  paneBrowse.style.display = "flex";
   paneScanning.style.display = "none";
   resultSheet.classList.remove("show");
   setStatus(true);
+  preloadSheetData();
 }
 
 function goSignedOutUI(){
   paneSignedOut.style.display = "flex";
-  paneIdle.style.display = "none";
+  paneBrowse.style.display = "none";
   paneScanning.style.display = "none";
   resultSheet.classList.remove("show");
   setStatus(false);
+  cachedRows = null;
 }
 
 window.addEventListener("load", () => {
@@ -285,11 +345,118 @@ el("btnSignOut").onclick = () => {
 };
 
 el("btnScan").onclick = startScanning;
-el("btnScanAgain").onclick = () => { resultSheet.classList.remove("show"); startScanning(); };
 el("btnCancelScan").onclick = stopScanning;
+el("btnCloseSheet").onclick = () => resultSheet.classList.remove("show");
+
+/* ---------------- Datos del sheet (cache en memoria) ---------------- */
+
+async function fetchSheetData(){
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(SHEET_RANGE)}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+
+  if (res.status === 401){
+    sessionStorage.removeItem("gs_token");
+    accessToken = null;
+    showError("La sesión expiró, volvé a conectar.");
+    goSignedOutUI();
+    return null;
+  }
+  if (!res.ok){ throw new Error("sheets_error"); }
+  const data = await res.json();
+  return data.values || [];
+}
+
+async function preloadSheetData(){
+  if (cachedRows) return;
+  try{
+    const rows = await fetchSheetData();
+    if (rows) cachedRows = rows;
+  } catch(e){
+    showError("No se pudo cargar la planilla.");
+  }
+}
+
+async function ensureData(){
+  if (!cachedRows){
+    const rows = await fetchSheetData();
+    if (rows) cachedRows = rows;
+  }
+  return cachedRows;
+}
+
+/* ---------------- Búsqueda por nombre ---------------- */
+
+function normalize(s){
+  return String(s || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // saca acentos
+    .toLowerCase().trim();
+}
+
+searchInput.addEventListener("input", async () => {
+  const raw = searchInput.value;
+  searchWrap.classList.toggle("has-text", raw.length > 0);
+
+  if (raw.trim().length === 0){
+    resultsView.classList.remove("show");
+    defaultView.style.display = "flex";
+    return;
+  }
+
+  defaultView.style.display = "none";
+  resultsView.classList.add("show");
+
+  const rows = await ensureData();
+  if (!rows){ return; }
+
+  const q = normalize(raw);
+  const matches = rows.filter(r => normalize(r[COL_NAME]).includes(q)).slice(0, 40);
+  renderResults(matches, rows.length);
+});
+
+el("btnClearSearch").onclick = () => {
+  searchInput.value = "";
+  searchWrap.classList.remove("has-text");
+  resultsView.classList.remove("show");
+  defaultView.style.display = "flex";
+  searchInput.blur();
+};
+
+function renderResults(matches, totalRows){
+  if (matches.length === 0){
+    resultsCount.textContent = "";
+    resultsList.innerHTML = `<div class="no-results">No encontramos productos con ese nombre.</div>`;
+    return;
+  }
+  resultsCount.textContent = `${matches.length} resultado${matches.length === 1 ? "" : "s"}`;
+  resultsList.innerHTML = "";
+  matches.forEach(r => {
+    const row = document.createElement("div");
+    row.className = "result-row";
+    const name = (r[COL_NAME] || "(sin nombre)").trim();
+    const price = r[COL_PRICE] ? formatPrice(r[COL_PRICE]) : "—";
+    row.innerHTML = `<span class="rname">${escapeHtml(name)}</span><span class="rprice">${price}</span>`;
+    row.onclick = () => showProduct(r);
+    resultsList.appendChild(row);
+  });
+}
+
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+}
+
+function showProduct(row){
+  el("sheetEyebrow").textContent = "Producto encontrado";
+  el("sheetName").textContent = row[COL_NAME] || "(sin nombre)";
+  el("sheetPrice").textContent = row[COL_PRICE] ? formatPrice(row[COL_PRICE]) : "—";
+  el("sheetBarcode").textContent = "Código: " + (row[COL_BARCODE] || "—");
+  resultSheet.classList.remove("error");
+  resultSheet.classList.add("show");
+}
+
+/* ---------------- Escaneo de código de barras ---------------- */
 
 function startScanning(){
-  paneIdle.style.display = "none";
+  paneBrowse.style.display = "none";
   paneScanning.style.display = "block";
   resultSheet.classList.remove("show");
 
@@ -320,11 +487,11 @@ function stopScanning(){
     html5QrCode.stop().catch(()=>{}).finally(()=>{
       html5QrCode.clear();
       paneScanning.style.display = "none";
-      paneIdle.style.display = "flex";
+      paneBrowse.style.display = "flex";
     });
   } else {
     paneScanning.style.display = "none";
-    paneIdle.style.display = "flex";
+    paneBrowse.style.display = "flex";
   }
 }
 
@@ -337,44 +504,27 @@ function onScanSuccess(decodedText){
 
 async function lookupBarcode(code){
   try {
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(SHEET_RANGE)}`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const rows = await ensureData();
+    if (!rows){ stopScanning(); return; }
 
-    if (res.status === 401){
-      sessionStorage.removeItem("gs_token");
-      accessToken = null;
-      showError("La sesión expiró, volvé a conectar.");
-      stopScanning();
-      goSignedOutUI();
-      return;
-    }
-    if (!res.ok){ throw new Error("sheets_error"); }
-
-    const data = await res.json();
-    const rows = data.values || [];
-    const match = rows.find(r => (r[0] || "").trim() === code);
+    const match = rows.find(r => normalize(r[COL_BARCODE]) === normalize(code));
 
     if (paneScanning.style.display !== "none"){
       html5QrCode.stop().catch(()=>{}).finally(()=> html5QrCode.clear());
     }
     paneScanning.style.display = "none";
-    paneIdle.style.display = "flex";
+    paneBrowse.style.display = "flex";
 
     if (match){
-      el("sheetEyebrow").textContent = "Producto encontrado";
-      el("sheetName").textContent = match[1] || "(sin nombre)";
-      el("sheetPrice").textContent = match[2] ? formatPrice(match[2]) : "—";
-      el("sheetBarcode").textContent = "Código: " + code;
-      resultSheet.classList.remove("error");
+      showProduct(match);
     } else {
       el("sheetEyebrow").textContent = "No encontrado";
       el("sheetName").textContent = "Ese código no está en la planilla";
       el("sheetPrice").textContent = "—";
       el("sheetBarcode").textContent = "Código: " + code;
       resultSheet.classList.add("error");
+      resultSheet.classList.add("show");
     }
-    resultSheet.classList.add("show");
-
   } catch(e){
     showError("No se pudo consultar la planilla.");
     stopScanning();
