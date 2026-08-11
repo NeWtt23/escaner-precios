@@ -268,8 +268,8 @@
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 /* ============ CONFIGURÁ ESTOS VALORES ============ */
-const GOOGLE_CLIENT_ID = "484542768280-o5g75va6b8l5aqhiocdqaohbp81krrnf.apps.googleusercontent.com";
-const SPREADSHEET_ID   = "10A7LDJFRscLKjkZyGEjJLlUlA7sojf6zgpQsvLSXN7A";
+const GOOGLE_CLIENT_ID = "TU_CLIENT_ID.apps.googleusercontent.com";
+const SPREADSHEET_ID   = "TU_SPREADSHEET_ID";
 const SHEET_RANGE       = "Hoja1!A:C"; // hoja!rango — ajustá el nombre de la hoja
 
 // Posición de cada dato DENTRO del rango de arriba, empezando en 0.
@@ -349,11 +349,15 @@ el("btnSignIn").onclick = () => tokenClient.requestAccessToken({ prompt: "" });
 el("btnSignOut").onclick = () => {
   accessToken = null;
   sessionStorage.removeItem("gs_token");
+  if (scannerReady && html5QrCode){
+    html5QrCode.stop().catch(()=>{}).finally(()=> html5QrCode.clear());
+    scannerReady = false;
+  }
   goSignedOutUI();
 };
 
 el("btnScan").onclick = startScanning;
-el("btnCancelScan").onclick = stopScanning;
+el("btnCancelScan").onclick = stopScanningFully;
 el("btnCloseSheet").onclick = () => resultSheet.classList.remove("show");
 
 el("btnRefresh").onclick = async () => {
@@ -475,11 +479,35 @@ function showProduct(row){
 }
 
 /* ---------------- Escaneo de código de barras ---------------- */
+// Nota técnica: en vez de apagar y volver a prender la cámara en cada
+// escaneo (start/stop), reutilizamos la misma sesión de cámara y solo la
+// pausamos/reanudamos. Apagar y prender de nuevo la cámara muy seguido
+// causa una pantalla parcialmente negra en algunos iPhone (13/14) al
+// reiniciar el sensor. Con pause/resume el sensor nunca se apaga.
+
+let scannerReady = false; // true si la cámara ya está inicializada (puede estar pausada)
 
 function startScanning(){
   paneBrowse.style.display = "none";
   paneScanning.style.display = "block";
   resultSheet.classList.remove("show");
+
+  if (scannerReady && html5QrCode){
+    // la cámara ya estaba inicializada de un escaneo anterior: solo reanudamos
+    try{
+      html5QrCode.resume();
+      return;
+    } catch(e){
+      // si por algún motivo no se puede reanudar, reiniciamos desde cero
+      scannerReady = false;
+    }
+  }
+
+  initScanner();
+}
+
+function initScanner(){
+  el("reader").innerHTML = ""; // por las dudas, sin restos de una sesión anterior
 
   html5QrCode = new Html5Qrcode("reader", {
     formatsToSupport: [
@@ -497,28 +525,37 @@ function startScanning(){
     { fps: 12, qrbox: { width: 280, height: 140 } },
     onScanSuccess,
     () => {} // ignore per-frame failures
-  ).catch(() => {
+  ).then(() => {
+    scannerReady = true;
+  }).catch(() => {
     showError("No se pudo acceder a la cámara.");
-    stopScanning();
+    scannerReady = false;
+    closeScanningPane();
   });
 }
 
-function stopScanning(){
-  if (html5QrCode){
+// Cancelar / cerrar sesión: ahí sí apagamos la cámara del todo.
+function stopScanningFully(){
+  if (html5QrCode && scannerReady){
     html5QrCode.stop().catch(()=>{}).finally(()=>{
       html5QrCode.clear();
-      paneScanning.style.display = "none";
-      paneBrowse.style.display = "flex";
+      scannerReady = false;
+      closeScanningPane();
     });
   } else {
-    paneScanning.style.display = "none";
-    paneBrowse.style.display = "flex";
+    scannerReady = false;
+    closeScanningPane();
   }
+}
+
+function closeScanningPane(){
+  paneScanning.style.display = "none";
+  paneBrowse.style.display = "flex";
 }
 
 function onScanSuccess(decodedText){
   if (html5QrCode){
-    html5QrCode.pause(true);
+    html5QrCode.pause(true); // pausa, no apaga la cámara
   }
   lookupBarcode(decodedText.trim());
 }
@@ -526,15 +563,12 @@ function onScanSuccess(decodedText){
 async function lookupBarcode(code){
   try {
     const rows = await ensureData();
-    if (!rows){ stopScanning(); return; }
+    if (!rows){ closeScanningPane(); return; }
 
     const match = rows.find(r => normalize(r[COL_BARCODE]) === normalize(code));
 
-    if (paneScanning.style.display !== "none"){
-      html5QrCode.stop().catch(()=>{}).finally(()=> html5QrCode.clear());
-    }
-    paneScanning.style.display = "none";
-    paneBrowse.style.display = "flex";
+    // la cámara queda pausada (prendida) — solo cambiamos qué pantalla se ve
+    closeScanningPane();
 
     if (match){
       showProduct(match);
@@ -548,7 +582,7 @@ async function lookupBarcode(code){
     }
   } catch(e){
     showError("No se pudo consultar la planilla.");
-    stopScanning();
+    closeScanningPane();
   }
 }
 
